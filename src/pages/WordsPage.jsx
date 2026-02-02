@@ -7,6 +7,7 @@ const WordsPage = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [showAddForm, setShowAddForm] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
   const [newWord, setNewWord] = useState({
     russian: '',
     uzbek: '',
@@ -14,6 +15,8 @@ const WordsPage = () => {
     example: '',
     exampleTranslation: ''
   });
+
+  const WORDS_PER_PAGE = 100;
 
   // Filter and search words
   const filteredWords = useMemo(() => {
@@ -28,6 +31,17 @@ const WordsPage = () => {
       return matchesSearch && matchesCategory;
     });
   }, [words, searchTerm, selectedCategory]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(filteredWords.length / WORDS_PER_PAGE);
+  const startIndex = (currentPage - 1) * WORDS_PER_PAGE;
+  const endIndex = startIndex + WORDS_PER_PAGE;
+  const currentWords = filteredWords.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  useMemo(() => {
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory]);
 
   // Get unique categories
   const categories = useMemo(() => {
@@ -206,15 +220,81 @@ const WordsPage = () => {
       {/* Results Count */}
       <div className="text-center text-gray-600">
         {filteredWords.length} ta so'z topildi
+        {totalPages > 1 && (
+          <span className="ml-2">
+            (Sahifa {currentPage} / {totalPages})
+          </span>
+        )}
       </div>
 
       {/* Words Grid */}
-      {filteredWords.length > 0 ? (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filteredWords.map((word) => (
-            <WordCard key={word.id} word={word} />
-          ))}
-        </div>
+      {currentWords.length > 0 ? (
+        <>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {currentWords.map((word) => (
+              <WordCard key={word.id} word={word} />
+            ))}
+          </div>
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-4 mt-8">
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+                  currentPage === 1
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                }`}
+              >
+                ← Oldingi
+              </button>
+
+              <div className="flex items-center gap-2">
+                {/* Page numbers */}
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <button
+                      key={pageNum}
+                      onClick={() => setCurrentPage(pageNum)}
+                      className={`w-12 h-12 rounded-lg font-medium transition-colors ${
+                        currentPage === pageNum
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                      }`}
+                    >
+                      {pageNum}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage === totalPages}
+                className={`px-6 py-3 rounded-lg font-medium transition-colors ${
+                  currentPage === totalPages
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                }`}
+              >
+                Keyingi →
+              </button>
+            </div>
+          )}
+        </>
       ) : (
         <div className="text-center py-12">
           <div className="text-6xl mb-4">😔</div>
