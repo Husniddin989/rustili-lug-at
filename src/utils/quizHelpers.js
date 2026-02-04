@@ -12,16 +12,17 @@ export const shuffleArray = (array) => {
 
 // Generate quiz questions from words
 export const generateQuizQuestions = (words, count = 10, mode = 'ru-uz') => {
-  if (words.length < 4) {
+  const validWords = words.filter(w => w.russian && w.uzbek);
+  if (validWords.length < 4) {
     throw new Error('Need at least 4 words to generate quiz');
   }
 
-  const shuffledWords = shuffleArray(words);
-  const selectedWords = shuffledWords.slice(0, Math.min(count, words.length));
+  const shuffledWords = shuffleArray(validWords);
+  const selectedWords = shuffledWords.slice(0, Math.min(count, validWords.length));
 
   return selectedWords.map((word) => {
     // Get 3 random wrong answers
-    const wrongAnswers = words
+    const wrongAnswers = validWords
       .filter(w => w.id !== word.id)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
@@ -61,7 +62,7 @@ export const generateQuizQuestions = (words, count = 10, mode = 'ru-uz') => {
 
 // Check if answer is correct
 export const checkAnswer = (userAnswer, correctAnswer) => {
-  return userAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
+  return (userAnswer || '').trim().toLowerCase() === (correctAnswer || '').trim().toLowerCase();
 };
 
 // Calculate quiz score

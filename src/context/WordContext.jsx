@@ -1,11 +1,10 @@
 import { createContext, useContext, useReducer, useEffect } from 'react';
 import { initialWords } from '../data/initialWords';
 import * as storage from '../utils/storage';
+import { initSRSWord } from '../utils/srsHelpers';
 
-// Create context
 const WordContext = createContext();
 
-// Action types
 const ACTIONS = {
   LOAD_WORDS: 'LOAD_WORDS',
   ADD_WORD: 'ADD_WORD',
@@ -13,24 +12,17 @@ const ACTIONS = {
   DELETE_WORD: 'DELETE_WORD',
   MARK_UNKNOWN: 'MARK_UNKNOWN',
   INCREMENT_REVIEW: 'INCREMENT_REVIEW',
-  UPDATE_PROGRESS: 'UPDATE_PROGRESS'
+  UPDATE_PROGRESS: 'UPDATE_PROGRESS',
+  UPDATE_WORD_SRS: 'UPDATE_WORD_SRS'
 };
 
-// Reducer
 const wordReducer = (state, action) => {
   switch (action.type) {
     case ACTIONS.LOAD_WORDS:
-      return {
-        ...state,
-        words: action.payload.words,
-        progress: action.payload.progress
-      };
+      return { ...state, words: action.payload.words, progress: action.payload.progress };
 
     case ACTIONS.ADD_WORD:
-      return {
-        ...state,
-        words: [...state.words, action.payload]
-      };
+      return { ...state, words: [...state.words, action.payload] };
 
     case ACTIONS.UPDATE_WORD:
       return {
@@ -41,10 +33,7 @@ const wordReducer = (state, action) => {
       };
 
     case ACTIONS.DELETE_WORD:
-      return {
-        ...state,
-        words: state.words.filter(word => word.id !== action.payload)
-      };
+      return { ...state, words: state.words.filter(word => word.id !== action.payload) };
 
     case ACTIONS.MARK_UNKNOWN:
       return {
@@ -67,9 +56,22 @@ const wordReducer = (state, action) => {
       };
 
     case ACTIONS.UPDATE_PROGRESS:
+      return { ...state, progress: { ...state.progress, ...action.payload } };
+
+    case ACTIONS.UPDATE_WORD_SRS:
       return {
         ...state,
-        progress: { ...state.progress, ...action.payload }
+        words: state.words.map(word =>
+          word.id === action.payload.id
+            ? {
+                ...word,
+                srsLevel: action.payload.srsLevel,
+                nextReview: action.payload.nextReview,
+                lastReviewed: action.payload.lastReviewed,
+                timesReviewed: (word.timesReviewed || 0) + 1
+              }
+            : word
+        )
       };
 
     default:
@@ -77,7 +79,6 @@ const wordReducer = (state, action) => {
   }
 };
 
-// Initial state
 const initialState = {
   words: [],
   progress: {
@@ -85,25 +86,90 @@ const initialState = {
     knownWords: 0,
     unknownWords: 0,
     quizzesTaken: 0,
-    lastStudied: null
+    lastStudied: null,
+    currentStreak: 0,
+    longestStreak: 0,
+    lastStudyDate: null
   }
 };
 
-// Provider component
+const checkStreak = (progress) => {
+  const today = new Date().toDateString();
+  const lastStudy = progress.lastStudyDate
+    ? new Date(progress.lastStudyDate).toDateString()
+    : null;
+
+  if (!lastStudy) {
+    return {
+      currentStreak: 1,
+      longestStreak: Math.max(1, progress.longestStreak || 0),
+      lastStudyDate: new Date().toISOString()
+    };
+  }
+
+  if (today === lastStudy) return {};
+
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (lastStudy === yesterday.toDateString()) {
+    const newStreak = (progress.currentStreak || 0) + 1;
+    return {
+      currentStreak: newStreak,
+      longestStreak: Math.max(newStreak, progress.longestStreak || 0),
+      lastStudyDate: new Date().toISOString()
+    };
+  }
+
+  return {
+    currentStreak: 1,
+    longestStreak: Math.max(1, progress.longestStreak || 0),
+    lastStudyDate: new Date().toISOString()
+  };
+};
+
 export const WordProvider = ({ children }) => {
   const [state, dispatch] = useReducer(wordReducer, initialState);
 
-  // Load words from localStorage on mount
   useEffect(() => {
     let words = storage.getWords();
+    const validCategories = new Set(['verb', 'noun', 'adjective', 'greeting', 'number', 'phrase']);
 
-    // If no words in storage, use initial words
     if (!words || words.length === 0) {
       words = initialWords;
       storage.saveWords(words);
+    } else {
+      // If localStorage has words with invalid categories (e.g. "level1" from old imports), reset to initialWords
+      const hasInvalid = words.some(w => !validCategories.has(w.category));
+      if (hasInvalid) {
+        const initialIds = new Set(initialWords.map(w => w.id));
+        // Keep only user-manually-added words (valid category, have both fields, not in initialWords)
+        const userOnly = words.filter(w =>
+          validCategories.has(w.category) && w.russian && w.uzbek && !initialIds.has(w.id)
+        );
+        words = [...initialWords, ...userOnly];
+        storage.saveWords(words);
+      }
     }
 
-    const progress = storage.getProgress();
+    // Migrate words for SRS if needed
+    let migrated = false;
+    words = words.map(word => {
+      if (word.srsLevel === undefined) {
+        migrated = true;
+        return initSRSWord(word);
+      }
+      return word;
+    });
+    if (migrated) storage.saveWords(words);
+
+    let progress = storage.getProgress();
+
+    // Ensure streak fields exist
+    if (progress.currentStreak === undefined) {
+      progress = { ...progress, currentStreak: 0, longestStreak: 0, lastStudyDate: null };
+      storage.saveProgress(progress);
+    }
 
     dispatch({
       type: ACTIONS.LOAD_WORDS,
@@ -111,12 +177,10 @@ export const WordProvider = ({ children }) => {
     });
   }, []);
 
-  // Save words to localStorage whenever they change
   useEffect(() => {
     if (state.words.length > 0) {
       storage.saveWords(state.words);
 
-      // Update progress
       const unknownWords = state.words.filter(w => w.isUnknown).length;
       const totalWords = state.words.length;
       const knownWords = totalWords - unknownWords;
@@ -132,10 +196,15 @@ export const WordProvider = ({ children }) => {
     }
   }, [state.words]);
 
-  // Actions
   const addWord = (word) => {
-    const newWord = storage.addWord(word);
-    dispatch({ type: ACTIONS.ADD_WORD, payload: newWord });
+    const newWord = {
+      ...word,
+      srsLevel: 0,
+      nextReview: new Date().toISOString(),
+      lastReviewed: null
+    };
+    const saved = storage.addWord(newWord);
+    dispatch({ type: ACTIONS.ADD_WORD, payload: saved });
   };
 
   const updateWord = (wordId, updates) => {
@@ -161,8 +230,33 @@ export const WordProvider = ({ children }) => {
   };
 
   const updateProgress = (updates) => {
-    const newProgress = storage.updateProgress(updates);
+    const streakUpdates = updates.lastStudied ? checkStreak(state.progress) : {};
+    const allUpdates = { ...updates, ...streakUpdates };
+    const newProgress = storage.updateProgress(allUpdates);
     dispatch({ type: ACTIONS.UPDATE_PROGRESS, payload: newProgress });
+  };
+
+  const updateWordSRS = (wordId, srsData) => {
+    const word = state.words.find(w => w.id === wordId);
+    if (word) {
+      const updated = {
+        ...word,
+        srsLevel: srsData.srsLevel,
+        nextReview: srsData.nextReview,
+        lastReviewed: srsData.lastReviewed,
+        timesReviewed: (word.timesReviewed || 0) + 1
+      };
+      storage.updateWord(wordId, updated);
+      dispatch({
+        type: ACTIONS.UPDATE_WORD_SRS,
+        payload: {
+          id: wordId,
+          srsLevel: srsData.srsLevel,
+          nextReview: srsData.nextReview,
+          lastReviewed: srsData.lastReviewed
+        }
+      });
+    }
   };
 
   const value = {
@@ -173,13 +267,13 @@ export const WordProvider = ({ children }) => {
     deleteWord,
     markAsUnknown,
     incrementReviewCount,
-    updateProgress
+    updateProgress,
+    updateWordSRS
   };
 
   return <WordContext.Provider value={value}>{children}</WordContext.Provider>;
 };
 
-// Custom hook to use the context
 export const useWords = () => {
   const context = useContext(WordContext);
   if (!context) {

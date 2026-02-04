@@ -85,7 +85,7 @@ const Flashcard = ({ word, onKnown, onUnknown }) => {
 
       {/* Hint */}
       {!isFlipped && (
-        <div className="mt-3 sm:mt-4 text-center text-gray-600 text-xs sm:text-sm">
+        <div className="mt-3 sm:mt-4 text-center text-gray-600 dark:text-gray-400 text-xs sm:text-sm">
           Tarjimasini ko'rish uchun kartochkani bosing
         </div>
       )}
